@@ -1,10 +1,12 @@
-// Socks5-Futures for socks5 proxies
-// =================================
+// Futures for socks5
+// ==================
 //
-// As per RFC 1928, this is not a compliant implication, because
+// As per RFC 1928, this is not a compliant implementation, because
 // GSSAPI authentication method is not supported.
 //
 // TODO: Return failures for socks5 requests
+// TODO: create a struct for socksv5_request message with
+//       get functions for port, cmd,....
 //
 
 use std::io;
