@@ -1,0 +1,6 @@
+[package]
+name = "socksv5_future"
+version = "0.1.0"
+authors = ["Jochen Kiemes <jochen@kiemes.de>"]
+
+[dependencies]
