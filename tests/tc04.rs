@@ -33,13 +33,13 @@ fn test_tcp_connection_send_v5auth_without_no_auth() {
 
     let test_conn = TcpStream::connect(&addr, &handle)
         .and_then({|stream|
-            write_all(stream,[5u8,1u8,0u8])
+            write_all(stream,[5u8,1u8,1u8])
         })
         .and_then({|(stream,_buf)|
             read_exact(stream,[0u8;2])
         })
         .and_then({|(stream,_buf)|
-            read_exact(stream,[0u8;1])
+            read_exact(stream,[0u8;2])
         })
         ;
     let timeout = tokio_core::reactor::Timeout::new(
@@ -59,6 +59,6 @@ fn test_tcp_connection_send_v5auth_without_no_auth() {
     match res {
         Ok(_x) => assert!(false),
         Err(error) => 
-            assert_eq!(error.kind(), io::ErrorKind::Other)
+            assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof)
     }
 }
