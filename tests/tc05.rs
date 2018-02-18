@@ -15,9 +15,9 @@ use tokio_core::net::{TcpListener,TcpStream};
 use tokio_io::io::{read_exact, write_all};
 
 #[test]
-fn test_tcp_connection_send_v5auth_without_no_auth() {
+fn test_tcp_connection_parallel_tests() {
     let mut lp = Core::new().unwrap();
-    let addr: SocketAddr = "127.0.0.1:64003".parse().unwrap();
+    let addr: SocketAddr = "127.0.0.1:64004".parse().unwrap();
     let handle = lp.handle();
     let handle2= handle.clone();
     let listener = TcpListener::bind(&addr, &handle).unwrap();
@@ -31,16 +31,24 @@ fn test_tcp_connection_send_v5auth_without_no_auth() {
     handle.clone().spawn(server);
 
     let test_conn = TcpStream::connect(&addr, &handle)
-        .and_then({|stream|
+        .and_then(|stream| {
             write_all(stream,[5u8,1u8,1u8])
         })
-        .and_then({|(stream,_buf)|
+        .and_then(|(stream,_buf)| {
             read_exact(stream,[0u8;2])
         })
-        .and_then({|(stream,_buf)|
-            read_exact(stream,[0u8;2])
-        })
-        ;
+        .and_then(|(stream,buf)| {
+            // At this point the first connection is open, but blocked.
+            TcpStream::connect(&addr, &handle)
+                .and_then(|stream| {
+                    write_all(stream,[5u8,1u8,1u8])
+                })
+                .and_then(|(stream,_buf)| {
+                    read_exact(stream,[0u8;2])
+                })
+                // If the second connection reaches here, then
+                // this means: second incoming connection is processed
+        });
     let timeout = tokio_core::reactor::Timeout::new(
                     Duration::from_millis(1000), &handle).unwrap();
 
@@ -56,8 +64,7 @@ fn test_tcp_connection_send_v5auth_without_no_auth() {
 
     let res = lp.run(timed_testcase);
     match res {
-        Ok(_x) => assert!(false),
-        Err(error) => 
-            assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof)
+        Ok(_) => (),
+        Err(_) => assert!(false)
     }
 }
