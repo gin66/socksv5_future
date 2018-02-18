@@ -31,7 +31,7 @@ Here short code segment to show the principal idea (this code will not compile):
     let server = listener.incoming().for_each(move |(socket, _addr)| {
         handle.spawn(
             socks_handshake(socket)
-                .and_then(move |(source,addr,request,_port,_cmd)| {
+                .and_then(move |(source,request)| {
                     let proxy = "xx.xx.xx.xx:8888".parse::<SocketAddr>().unwrap();
                     let connect = TcpStream::connect(&proxy,&handle);
                     connect.and_then(move |dest|{
