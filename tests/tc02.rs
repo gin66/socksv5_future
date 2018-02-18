@@ -1,7 +1,6 @@
 extern crate futures;
 extern crate tokio_io;
 extern crate tokio_core;
-extern crate bytes;
 extern crate socksv5_future;
 
 use std::io::{Error, ErrorKind};
