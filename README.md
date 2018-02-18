@@ -23,7 +23,7 @@ This is the client side implementation. It performs step 2-5.
 ## Use case socks5 forwarder
 The socks5 request from the client is used unchanged and sent to the forwarded socks proxy.
 Here short code segment to show the principal idea (this code will not compile):
-'''rust
+```rust
     let mut lp = Core::new().unwrap();
     let handle = lp.handle();
     let addr = "127.0.0.1:8888".parse::<SocketAddr>().unwrap();
@@ -48,7 +48,7 @@ Here short code segment to show the principal idea (this code will not compile):
         Ok(())
     });
     handle.spawn(server)
-'''
+```
 
 ## TODO
 - Get rid of the BytesMut
