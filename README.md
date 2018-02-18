@@ -50,10 +50,6 @@ Here short code segment to show the principal idea (this code will not compile):
     handle.spawn(server)
 ```
 
-## TODO
-- Get rid of the BytesMut
-- Create a socks request struct as result and input of the two futures
-
 [![Build Status](https://travis-ci.org/gin66/socksv5_future.svg?branch=master)](https://travis-ci.org/gin66/socksv5_future)
 
 

@@ -17,7 +17,6 @@ use tokio_io::io::{read_exact, write_all, ReadExact, WriteAll};
 use tokio_core::net::{TcpStream};
 use futures::*;
 use futures::Async;
-use bytes::{BufMut,Bytes,BytesMut};
 
 #[allow(dead_code)]
 mod v5 {
@@ -74,11 +73,11 @@ pub enum Command {
     Unknown(u8)
 }
 
-pub struct SocksRequest {
+pub struct SocksRequestResponse {
     bytes: Vec<u8>
 }
 
-impl SocksRequest {
+impl SocksRequestResponse {
     pub fn port(&self) -> u16 {
         let n = self.bytes.len();
         ((self.bytes[n-2] as u16) << 8) | (self.bytes[n-1] as u16)
@@ -136,19 +135,19 @@ impl SocksRequest {
 }
 
 pub struct SocksHandshake {
-    request: SocksRequest,
+    request: SocksRequestResponse,
     state: ServerState
 }
 
 pub struct SocksConnectHandshake {
-    request: Bytes,
+    request: SocksRequestResponse,
     state: ClientState,
-    response: BytesMut
+    response: SocksRequestResponse
 }
 
 pub fn socks_handshake(stream: TcpStream) -> SocksHandshake {
     SocksHandshake { 
-        request: SocksRequest {
+        request: SocksRequestResponse {
             bytes: Vec::with_capacity(v5::MAX_REQUEST_SIZE)
         },
         state: ServerState::WaitClientAuthentication(
@@ -157,18 +156,21 @@ pub fn socks_handshake(stream: TcpStream) -> SocksHandshake {
     }
 }
 
-pub fn socks_connect_handshake(stream: TcpStream,request: Bytes) -> SocksConnectHandshake {
+pub fn socks_connect_handshake(stream: TcpStream,request: SocksRequestResponse)
+                                                         -> SocksConnectHandshake {
     SocksConnectHandshake { 
         request,
         state: ClientState::WaitSentAuthentication(
             write_all(stream,vec![v5::VERSION,1u8,v5::METH_NO_AUTH])
         ),
-        response: BytesMut::with_capacity(v5::MAX_REQUEST_SIZE)
+        response: SocksRequestResponse {
+            bytes: Vec::with_capacity(v5::MAX_REQUEST_SIZE)
+        }
     }
 }
 
 impl Future for SocksHandshake {
-    type Item = (TcpStream,SocksRequest);
+    type Item = (TcpStream,SocksRequestResponse);
     type Error = io::Error;
 
     fn poll(&mut self) -> Result<Async<Self::Item>, io::Error> {
@@ -227,7 +229,7 @@ impl Future for SocksHandshake {
                         };
                     let delta = (dst_len as usize) + 6 - self.request.bytes.len();
                     if delta == 0 {
-                        let sr = mem::replace(&mut self.request,SocksRequest{ bytes:vec!()});
+                        let sr = mem::replace(&mut self.request,SocksRequestResponse{ bytes:vec!()});
                         return Ok(Async::Ready(((stream,sr))));
                     }
                     WaitClientRequest(
@@ -240,7 +242,7 @@ impl Future for SocksHandshake {
 }
 
 impl Future for SocksConnectHandshake {
-    type Item = (TcpStream,Bytes);
+    type Item = (TcpStream,SocksRequestResponse);
     type Error = io::Error;
 
     fn poll(&mut self) -> Result<Async<Self::Item>, io::Error> {
@@ -260,7 +262,7 @@ impl Future for SocksConnectHandshake {
                         return Err(Error::new(ErrorKind::Other, "No Socks5 proxy found"));
                     }
                     WaitSentRequest(
-                        write_all(stream,self.request.to_vec())
+                       write_all(stream,self.request.bytes.clone())
                     )
                 },
                 WaitSentRequest(ref mut fut) => {
@@ -271,28 +273,29 @@ impl Future for SocksConnectHandshake {
                 },
                 WaitReply(ref mut fut) => {
                     let (stream,buf) = try_ready!(fut.poll());
-                    self.response.put_slice(&buf);
-                    if self.response[0] != v5::VERSION {
+                    self.response.bytes.extend_from_slice(&buf);
+                    if self.response.bytes[0] != v5::VERSION {
                         return Err(Error::new(ErrorKind::Other, "Not Socks5 response"))
                     };
-                    if self.response[2] != 0 {
+                    if self.response.bytes[2] != 0 {
                         return Err(Error::new(ErrorKind::Other, 
                                 "Reserved field in socks5 response is not 0x00"))
                     };
-                    if self.response[2] != self.response[2] {
+                    if self.response.bytes[2] != self.response.bytes[2] {
                         return Err(Error::new(ErrorKind::Other, "Response command differs from request"))
                     };
                     let dst_len =
-                        match self.response[3] {
+                        match self.response.bytes[3] {
                             v5::ATYP_IPV4   => 4,
                             v5::ATYP_IPV6   => 16,
-                            v5::ATYP_DOMAIN => self.response[4]+1,
+                            v5::ATYP_DOMAIN => self.response.bytes[4]+1,
                             _ => return Err(Error::new(ErrorKind::Other, 
                                                 "Unknown address typ in socks5 response"))
                         };
-                    let delta = (dst_len as usize) + 6 - self.response.len();
+                    let delta = (dst_len as usize) + 6 - self.response.bytes.len();
                     if delta == 0 {
-                        return Ok(Async::Ready((stream,self.response.take().freeze())));
+                        let sr = mem::replace(&mut self.response,SocksRequestResponse{ bytes:vec!()});
+                        return Ok(Async::Ready((stream,sr)));
                     }
                     WaitReply(
                         read_exact(stream,vec![0u8; delta])
