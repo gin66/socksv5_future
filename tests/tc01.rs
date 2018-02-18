@@ -5,13 +5,10 @@ extern crate bytes;
 extern crate socksv5_future;
 
 use std::net::SocketAddr;
-use std::time::Duration;
 use socksv5_future::socks_handshake;
 use futures::{Future,Stream};
-use futures::future::Either;
 use tokio_core::reactor::Core;
 use tokio_core::net::{TcpListener,TcpStream};
-use tokio_io::io::{read_exact, write_all};
 
 #[test]
 fn test_tcp_connection() {

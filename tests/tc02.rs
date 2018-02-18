@@ -51,6 +51,6 @@ fn test_tcp_connection_send_v5auth() {
             Err(Either::B((timeout_error, _get))) => Err(From::from(timeout_error)),
         });
 
-    let (stream,buf) = lp.run(timed_testcase).unwrap();
+    let (_stream,buf) = lp.run(timed_testcase).unwrap();
     assert!(buf == [5u8,0u8])
 }
