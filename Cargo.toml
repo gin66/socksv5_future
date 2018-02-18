@@ -1,6 +1,6 @@
 [package]
 name = "socksv5_future"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Jochen Kiemes <jochen@kiemes.de>"]
 license = "MIT"
 description = "Socks v5 futures for Server and Client"

@@ -74,7 +74,7 @@ pub enum Command {
 }
 
 pub struct SocksRequestResponse {
-    bytes: Vec<u8>
+    pub bytes: Vec<u8>
 }
 
 impl SocksRequestResponse {
@@ -130,6 +130,12 @@ impl SocksRequestResponse {
             v5::CMD_BIND          => Command::Bind,
             v5::CMD_UDP_ASSOCIATE => Command::UdpAssociate,
             cmd                   => Command::Unknown(cmd)
+        }
+    }
+
+    pub fn clone(&self) -> SocksRequestResponse {
+        SocksRequestResponse {
+            bytes: self.bytes.clone()
         }
     }
 }
