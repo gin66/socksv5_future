@@ -11,7 +11,8 @@
 
 use std::io;
 use std::io::{Error, ErrorKind};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::mem;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio_io::io::{read_exact, write_all, ReadExact, WriteAll};
 use tokio_core::net::{TcpStream};
 use futures::*;
@@ -66,8 +67,76 @@ enum ClientState {
     WaitReply(ReadExact<TcpStream,Vec<u8>>)
 }
 
+pub enum Command {
+    Connect,
+    Bind,
+    UdpAssociate,
+    Unknown(u8)
+}
+
+pub struct SocksRequest {
+    bytes: Vec<u8>
+}
+
+impl SocksRequest {
+    pub fn port(&self) -> u16 {
+        let n = self.bytes.len();
+        ((self.bytes[n-2] as u16) << 8) | (self.bytes[n-1] as u16)
+    }
+
+    pub fn ipaddr(&self) -> Option<IpAddr> {
+        match self.bytes[3] {
+            v5::ATYP_IPV4   => {
+                Some(IpAddr::V4(Ipv4Addr::new(self.bytes[4],
+                                                    self.bytes[5],
+                                                    self.bytes[6],
+                                                    self.bytes[7])))
+            },
+            v5::ATYP_IPV6   => {
+                Some(IpAddr::V6(Ipv6Addr::new(
+                                    ((self.bytes[4] as u16) <<8)+(self.bytes[5] as u16),
+                                    ((self.bytes[6] as u16) <<8)+(self.bytes[7] as u16),
+                                    ((self.bytes[8] as u16) <<8)+(self.bytes[9] as u16),
+                                    ((self.bytes[10] as u16) <<8)+(self.bytes[11] as u16),
+                                    ((self.bytes[12] as u16) <<8)+(self.bytes[13] as u16),
+                                    ((self.bytes[14] as u16) <<8)+(self.bytes[15] as u16),
+                                    ((self.bytes[16] as u16) <<8)+(self.bytes[17] as u16),
+                                    ((self.bytes[18] as u16) <<8)+(self.bytes[19] as u16)
+                                    )))
+            },
+            _ => None
+        }
+    }
+
+    pub fn socketaddr(&self) -> Option<SocketAddr> {
+        match self.ipaddr() {
+            Some(ip) => Some(SocketAddr::new(ip, self.port())),
+            None => None
+        }
+    }
+
+    pub fn hostname(&self) -> Option<&[u8]> {
+        match self.bytes[3] {
+            v5::ATYP_DOMAIN   => {
+                let domlen = self.bytes[4] as usize;
+                Some(&self.bytes[5..(5+domlen)])
+            },
+            _ => None
+        }
+    }
+
+    pub fn command(&self) -> Command {
+        match self.bytes[1] {
+            v5::CMD_CONNECT       => Command::Connect,
+            v5::CMD_BIND          => Command::Bind,
+            v5::CMD_UDP_ASSOCIATE => Command::UdpAssociate,
+            cmd                   => Command::Unknown(cmd)
+        }
+    }
+}
+
 pub struct SocksHandshake {
-    request: BytesMut,
+    request: SocksRequest,
     state: ServerState
 }
 
@@ -79,7 +148,9 @@ pub struct SocksConnectHandshake {
 
 pub fn socks_handshake(stream: TcpStream) -> SocksHandshake {
     SocksHandshake { 
-        request: BytesMut::with_capacity(v5::MAX_REQUEST_SIZE),
+        request: SocksRequest {
+            bytes: Vec::with_capacity(v5::MAX_REQUEST_SIZE)
+        },
         state: ServerState::WaitClientAuthentication(
             read_exact(stream,vec!(0u8;2))
         )
@@ -96,19 +167,8 @@ pub fn socks_connect_handshake(stream: TcpStream,request: Bytes) -> SocksConnect
     }
 }
 
-pub enum Command {
-    Connect = 1,
-    Bind = 2,
-    UdpAssociate = 3
-}
-
-pub enum Addr {
-    IP(IpAddr),
-    DOMAIN(Vec<u8>)
-}
-
 impl Future for SocksHandshake {
-    type Item = (TcpStream,Addr,BytesMut,u16,Command);
+    type Item = (TcpStream,SocksRequest);
     type Error = io::Error;
 
     fn poll(&mut self) -> Result<Async<Self::Item>, io::Error> {
@@ -149,70 +209,30 @@ impl Future for SocksHandshake {
                 }
                 WaitClientRequest(ref mut fut) => {
                     let (stream,buf) = try_ready!(fut.poll());
-                    self.request.put_slice(&buf);
-                    if self.request[0] != v5::VERSION {
+                    self.request.bytes.extend_from_slice(&buf);
+                    if self.request.bytes[0] != v5::VERSION {
                         return Err(Error::new(ErrorKind::Other, "Not Socks5 request"))
                     };
-                    if self.request[2] != 0 {
+                    if self.request.bytes[2] != 0 {
                         return Err(Error::new(ErrorKind::Other, 
                                 "Reserved field in socks5 request is not 0x00"))
                     };
-                    let cmd = match self.request[1] {
-                        v5::CMD_CONNECT => Command::Connect,
-                        v5::CMD_BIND    => Command::Bind,
-                        v5::CMD_UDP_ASSOCIATE => Command::UdpAssociate,
-                        _ => return Err(Error::new(ErrorKind::Other, "Unknown socks5 command"))
-                    };
                     let dst_len =
-                        match self.request[3] {
+                        match self.request.bytes[3] {
                             v5::ATYP_IPV4   => 4,
                             v5::ATYP_IPV6   => 16,
-                            v5::ATYP_DOMAIN => self.request[4]+1,
+                            v5::ATYP_DOMAIN => self.request.bytes[4]+1,
                             _ => return Err(Error::new(ErrorKind::Other, 
-                                                "Unknown address typ in socks5 request"))
+                                            "Unknown address type in socks5 request"))
                         };
-                    let delta = (dst_len as usize) + 6 - self.request.len();
-                    if delta > 0 {
-                        WaitClientRequest(
-                            read_exact(stream,vec![0u8; delta])
-                        )
+                    let delta = (dst_len as usize) + 6 - self.request.bytes.len();
+                    if delta == 0 {
+                        let sr = mem::replace(&mut self.request,SocksRequest{ bytes:vec!()});
+                        return Ok(Async::Ready(((stream,sr))));
                     }
-                    else {
-                        let n = self.request.len();
-                        let port = ((self.request[n-2] as u16) << 8) | (self.request[n-1] as u16);
-                        let addr = match self.request[3] {
-                            v5::ATYP_IPV4   => {
-                                let ipv4 = IpAddr::V4(Ipv4Addr::new(self.request[4],
-                                                                    self.request[5],
-                                                                    self.request[6],
-                                                                    self.request[7]));
-                                Addr::IP(ipv4)
-                            },
-                            v5::ATYP_IPV6   => {
-                                let ipv6 = self.request[4..20].to_vec();
-                                let ipv6 = IpAddr::V6(Ipv6Addr::new(
-                                                    ((self.request[4] as u16) <<8)+(self.request[5] as u16),
-                                                    ((self.request[6] as u16) <<8)+(self.request[7] as u16),
-                                                    ((self.request[8] as u16) <<8)+(self.request[9] as u16),
-                                                    ((self.request[10] as u16) <<8)+(self.request[11] as u16),
-                                                    ((self.request[12] as u16) <<8)+(self.request[13] as u16),
-                                                    ((self.request[14] as u16) <<8)+(self.request[15] as u16),
-                                                    ((self.request[16] as u16) <<8)+(self.request[17] as u16),
-                                                    ((self.request[18] as u16) <<8)+(self.request[19] as u16)
-                                                    ));
-                                Addr::IP(ipv6)
-                            },
-                            v5::ATYP_DOMAIN => {
-                                let domlen = self.request[4] as usize;
-                                let dom: Vec<u8> = self.request[5..(5+domlen)].to_vec();
-                                Addr::DOMAIN(dom)
-                            },
-                            _ =>
-                                panic!("Memory mutation happened")
-                        };
-                        return Ok(Async::Ready(((stream,addr,self.request.take(),
-                                                 port,cmd))));
-                    }
+                    WaitClientRequest(
+                        read_exact(stream,vec![0u8; delta])
+                    )
                 }
             }
         }
@@ -271,14 +291,12 @@ impl Future for SocksConnectHandshake {
                                                 "Unknown address typ in socks5 response"))
                         };
                     let delta = (dst_len as usize) + 6 - self.response.len();
-                    if delta > 0 {
-                        WaitReply(
-                            read_exact(stream,vec![0u8; delta])
-                        )
-                    }
-                    else {
+                    if delta == 0 {
                         return Ok(Async::Ready((stream,self.response.take().freeze())));
                     }
+                    WaitReply(
+                        read_exact(stream,vec![0u8; delta])
+                    )
                 }
             }
         }
