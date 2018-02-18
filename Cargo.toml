@@ -1,12 +1,12 @@
 [package]
 name = "socksv5_future"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jochen Kiemes <jochen@kiemes.de>"]
 license = "MIT"
 description = "Socks v5 futures for Server and Client"
 homepage = "https://github.com/gin66/socksv5_future"
 repository = "https://github.com/gin66/socksv5_future"
-keywords = ["socks", "server", "client", "future"]
+keywords = ["socks", "server", "client", "future", "tokio"]
 readme = "README.md"
 
 [dependencies]
