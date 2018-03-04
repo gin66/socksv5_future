@@ -1,6 +1,7 @@
 # socksv5_future
 
 The socks5 protocol consists of a handshake in these steps:
+
 1. Client establish TCP connection to a socks5 server
 2. Client sends authentication request with list of supported authentication methods.
 3. Server selects an appropriate authentication method and sends this back to client.
@@ -8,6 +9,7 @@ The socks5 protocol consists of a handshake in these steps:
 5. Server establishes connection to destination and answers client's request
 
 This is the implementation of two Futures:
+
 - SocksHandshake
 - SocksConnectHandshake
 
@@ -15,14 +17,18 @@ As per RFC 1928, this is not a compliant socks5 implementation, because
 GSSAPI authentication method is not supported.
 
 ## SocksHandshake
+
 This is the server side implementation. It implements the step 2 to 4. Step 5 is not performed by this future. Instead the socks5 request is part of the future result.
 
 ## SocksConnectHandshake
+
 This is the client side implementation. It performs step 2-5.
 
 ## Use case socks5 forwarder
+
 The socks5 request from the client is used unchanged and sent to the forwarded socks proxy.
 Here short code segment to show the principal idea (this code will not compile):
+
 ```rust
     let mut lp = Core::new().unwrap();
     let handle = lp.handle();
