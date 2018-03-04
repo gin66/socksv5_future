@@ -3,7 +3,6 @@ extern crate tokio_io;
 extern crate tokio_core;
 extern crate socksv5_future;
 
-use std::io;
 use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -37,7 +36,7 @@ fn test_tcp_connection_parallel_tests() {
         .and_then(|(stream,_buf)| {
             read_exact(stream,[0u8;2])
         })
-        .and_then(|(stream,buf)| {
+        .and_then(|(_stream,_buf)| {
             // At this point the first connection is open, but blocked.
             TcpStream::connect(&addr, &handle)
                 .and_then(|stream| {
